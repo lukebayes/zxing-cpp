@@ -24,3 +24,7 @@ CMakeLists.txt.user
 
 # Visual Studio Code
 /.vscode
+
+build
+build-wasm
+dist
