@@ -4,7 +4,8 @@
       "Bash(cmake:*)",
       "Bash(emcc:*)",
       "Bash(apt-cache search:*)",
-      "Bash(emcmake cmake:*)"
+      "Bash(emcmake cmake:*)",
+      "Bash(ls:*)"
     ],
     "deny": [],
     "ask": []

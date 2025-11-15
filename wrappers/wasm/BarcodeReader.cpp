@@ -21,7 +21,7 @@ struct ReadResult
 {
 	std::string format{};
 	std::string text{};
-	emscripten::val bytes;
+	emscripten::val bytes = emscripten::val::undefined();
 	std::string error{};
 	Position position{};
 	std::string symbologyIdentifier{};
@@ -60,9 +60,9 @@ std::vector<ReadResult> readBarcodes(ImageView iv, bool tryHarder, const std::st
 
 		return readResults;
 	} catch (const std::exception& e) {
-		return {{"", "", {}, e.what()}};
+		return {ReadResult{"", "", emscripten::val::undefined(), e.what()}};
 	} catch (...) {
-		return {{"", "", {}, "Unknown error"}};
+		return {ReadResult{"", "", emscripten::val::undefined(), "Unknown error"}};
 	}
 	return {};
 }
@@ -74,7 +74,7 @@ std::vector<ReadResult> readBarcodesFromImage(int bufferPtr, int bufferLength, b
 		stbi_load_from_memory(reinterpret_cast<const unsigned char*>(bufferPtr), bufferLength, &width, &height, &channels, 1),
 		stbi_image_free);
 	if (buffer == nullptr)
-		return {{"", "", {}, "Error loading image"}};
+		return {ReadResult{"", "", emscripten::val::undefined(), "Error loading image"}};
 
 	return readBarcodes({buffer.get(), width, height, ImageFormat::Lum}, tryHarder, format, maxSymbols);
 }
