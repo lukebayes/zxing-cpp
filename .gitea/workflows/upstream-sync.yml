@@ -35,7 +35,7 @@ jobs:
       GITEA_URL: ${{ github.server_url }}
       GITEA_REPOSITORY: ${{ github.repository }}
       GITEA_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      JOB_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_number }}
+      JOB_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       SIMULATE_CONFLICT: ${{ github.event.inputs.simulate_conflict }}
     steps:
       - name: Check out
