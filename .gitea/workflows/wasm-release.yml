@@ -14,7 +14,7 @@ on:
         description: 'Release tag, vX.Y.Z-eaN (created on the eightamps tip if it does not exist)'
         required: true
       dry_run:
-        description: 'true: build and smoke-test only, create no tag and no release'
+        description: 'true: build, smoke-test and rehearse the release (a draft is made and deleted); no tag, no release'
         required: false
         default: 'false'
 
@@ -84,8 +84,9 @@ jobs:
         run: |
           set -eu
           if [ "$DRY_RUN" = true ]; then
-            echo "dry run: no tag and no release created"
+            echo "dry run: rehearsing the release; no tag and no release will remain"
             cat eightamps/dist/VERSION
+            eightamps/release.sh --rehearse "$TAG" eightamps/dist
             exit 0
           fi
           if [ "$NEW_TAG" = true ]; then

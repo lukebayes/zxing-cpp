@@ -6,15 +6,21 @@
 # half-made release. The script refuses to touch a tag that already has a
 # release: it never creates a duplicate.
 #
-# Usage: eightamps/release.sh TAG DIST_DIR
+# With --rehearse the script does everything except publish: it creates the
+# draft, uploads the assets, checks them, and deletes the draft. The wasm-release
+# dry run uses it to prove the token can release without leaving a release.
+#
+# Usage: eightamps/release.sh [--rehearse] TAG DIST_DIR
 # Env:   GITEA_URL         e.g. https://git.eightamps.com
 #        GITEA_REPOSITORY  org/repo
 #        GITEA_TOKEN       token with write access to releases
 #        GITEA_API_URL     override for $GITEA_URL/api/v1 (tests)
 set -euo pipefail
 
-tag=${1:?usage: release.sh TAG DIST_DIR}
-dist=${2:?usage: release.sh TAG DIST_DIR}
+rehearse=false
+if [[ ${1:-} == --rehearse ]]; then rehearse=true; shift; fi
+tag=${1:?usage: release.sh [--rehearse] TAG DIST_DIR}
+dist=${2:?usage: release.sh [--rehearse] TAG DIST_DIR}
 api=${GITEA_API_URL:-${GITEA_URL:?}/api/v1}/repos/${GITEA_REPOSITORY:?}
 auth=(-H "Authorization: token ${GITEA_TOKEN:?}")
 assets=(zxing_reader.js zxing_reader.wasm VERSION SHA256SUMS)
@@ -51,6 +57,13 @@ done
 
 count=$(curl -fsS "${auth[@]}" "$api/releases/$id" | jq -er '.assets | length')
 [[ $count -eq ${#assets[@]} ]] || { echo "error: release has $count assets, expected ${#assets[@]}" >&2; false; }
+
+if $rehearse; then
+  curl -fsS -X DELETE "${auth[@]}" "$api/releases/$id" >/dev/null
+  trap - ERR
+  echo "rehearsal ok: created a draft $tag with ${#assets[@]} assets, then deleted it"
+  exit 0
+fi
 
 url=$(jq -n '{draft: false}' |
   curl -fsS -X PATCH "${auth[@]}" -H 'Content-Type: application/json' --data-binary @- "$api/releases/$id" |

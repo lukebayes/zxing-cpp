@@ -291,6 +291,13 @@ check "release.sh exits 0" [ $rc -eq 0 ]
 check "created a draft release" [ "$(posts /releases | jq -r '.[0].body.draft')" = "true" ]
 check "uploaded 4 assets" [ "$(n_posts /assets)" -eq 4 ]
 check "published it" jqe -s 'map(select(.method == "PATCH" and .body.draft == false)) | length == 1' "$S/requests.log"
+setup
+echo '[]' > "$S/releases.json"
+"$here/release.sh" --rehearse v1.3.0-ea1 "$dist" >/dev/null 2>&1; rc=$?
+check "rehearsal exits 0" [ $rc -eq 0 ]
+check "rehearsal uploads 4 assets" [ "$(n_posts /assets)" -eq 4 ]
+check "rehearsal never publishes" jqe -s 'map(select(.method == "PATCH")) | length == 0' "$S/requests.log"
+check "rehearsal deletes its draft" jqe -s 'map(select(.method == "DELETE")) | length == 1' "$S/requests.log"
 echo '[{"tag_name": "v1.1.0-ea1", "draft": false}]' > "$S/releases.json"
 : > "$S/requests.log"
 "$here/release.sh" v1.1.0-ea1 "$dist" >/dev/null 2>&1; rc=$?

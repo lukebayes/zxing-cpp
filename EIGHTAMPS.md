@@ -73,7 +73,7 @@ A merge to `eightamps` that changes anything outside `.gitea/` and `eightamps/` 
 1. Merge the PR into `eightamps` (rebase-merge is fine for our own patches).
 2. Dispatch `wasm-release` on the `eightamps` branch. Set `tag` to the next number for that upstream version, for example `v3.1.1-ea2`.
 
-If the tag does not exist yet, the workflow creates it on the tip of `eightamps`. It refuses a tag that is not built on its upstream release, and it refuses to create a release for a tag that already has one. Use the `dry_run` input to build and smoke-test without a tag or a release.
+If the tag does not exist yet, the workflow creates it on the tip of `eightamps`. It refuses a tag that is not built on its upstream release, and it refuses to create a release for a tag that already has one. Use the `dry_run` input to build, smoke-test and rehearse the release without a tag or a release. The rehearsal makes a draft release, uploads the 4 assets and deletes the draft.
 
 ## Build and test locally
 
