@@ -40,6 +40,8 @@ upstream=$(git -C "$root" describe --tags --abbrev=0 --match 'v[0-9]*' --exclude
 
 # -ffile-prefix-map keeps the container's mount paths out of the output.
 container_script="set -euo pipefail
+  mkdir -p /build
+  cd /build
   emcmake cmake /src/wrappers/wasm \\
     -DCMAKE_BUILD_TYPE=Release \\
     -DCMAKE_CXX_FLAGS='$CXX_FLAGS -ffile-prefix-map=/src=.' \\
@@ -48,7 +50,7 @@ container_script="set -euo pipefail
     -DSTB_IMAGE_INCLUDE_DIR=/src/$STB_DIR
   cmake --build . --target zxing_reader -j\$(nproc)"
 
-cid=$("${podman[@]}" create -w /build "$EMSDK_IMAGE" bash -c "$container_script")
+cid=$("${podman[@]}" create "$EMSDK_IMAGE" bash -c "$container_script")
 trap '"${podman[@]}" rm -f "$cid" >/dev/null 2>&1 || true' EXIT
 
 # git archive ships exactly the committed files, so the build is of $commit.
