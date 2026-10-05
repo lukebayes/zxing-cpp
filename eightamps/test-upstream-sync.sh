@@ -244,6 +244,7 @@ run_sync SIMULATE_CONFLICT=true; rc=$?
 check "exits 0" [ $rc -eq 0 ]
 check "eightamps untouched" [ "$(og rev-parse eightamps)" = "$before" ]
 check "opens a [simulated] issue" [ "$(posts /issues | jq -r '.[0].body.title')" = "[simulated] Upstream v1.0.0 needs a manual merge" ]
+check "the simulated issue says it is a test" jqe '.[0].body.body | contains("This is a test of the conflict path")' <(posts /issues)
 run_sync SIMULATE_CONFLICT=true
 check "a second simulated run files no duplicate" [ "$(n_posts /issues)" -eq 1 ]
 

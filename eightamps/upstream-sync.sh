@@ -37,9 +37,12 @@ die() { echo "error: $*" >&2; exit 1; }
 # Open the "needs a manual merge" issue unless one is already open.
 # $1 reason, $2 detail (markdown), $3 detail heading
 report_problem() {
-  local reason=$1 detail=$2 heading=$3 title existing body number
+  local reason=$1 detail=$2 heading=$3 title existing body number note=
   title="Upstream $newest needs a manual merge"
-  [[ $SIMULATE_CONFLICT == true ]] && title="[simulated] $title"
+  if [[ $SIMULATE_CONFLICT == true ]]; then
+    title="[simulated] $title"
+    note=$'**This is a test of the conflict path. Nothing is wrong. Do no work: close this issue.**\n\n'
+  fi
 
   existing=$(curl -fsS "${auth[@]}" "$api/issues?state=open&type=issues&limit=100" |
     jq -r --arg t "$title" '[.[] | select(.title == $t) | .number] | first // empty')
@@ -53,7 +56,7 @@ Model: sonnet
 
 > **Base branch: $BASE_BRANCH** (open the PR against \`$BASE_BRANCH\`, never \`$MIRROR_BRANCH\`)
 
-The nightly upstream sync could not release upstream \`$newest\` on its own. Nothing was pushed.
+${note}The nightly upstream sync could not release upstream \`$newest\` on its own. Nothing was pushed.
 
 - Reason: $reason
 - Job: $JOB_URL
