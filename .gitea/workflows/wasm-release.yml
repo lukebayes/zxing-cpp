@@ -87,6 +87,9 @@ jobs:
             echo "dry run: rehearsing the release; no tag and no release will remain"
             cat eightamps/dist/VERSION
             eightamps/release.sh --rehearse "$TAG" eightamps/dist
+            # Dry run of a push to a ref that does not exist: it checks that
+            # the token can push, and creates nothing.
+            git push --dry-run origin "HEAD:refs/tags/dry-run-$GITHUB_RUN_ID"
             exit 0
           fi
           if [ "$NEW_TAG" = true ]; then
