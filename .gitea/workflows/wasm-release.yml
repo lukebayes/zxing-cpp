@@ -1,0 +1,107 @@
+name: wasm-release
+
+# Build zxing_reader.{js,wasm} for a tag, smoke-test it and publish a Gitea
+# release with the 4 assets. See EIGHTAMPS.md.
+#
+# Dispatch it on the `eightamps` branch with a tag vX.Y.Z-eaN. If the tag does
+# not exist yet, the job creates it on the tip of `eightamps`. If it exists,
+# the job builds that tag.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag, vX.Y.Z-eaN (created on the eightamps tip if it does not exist)'
+        required: true
+      dry_run:
+        description: 'true: build and smoke-test only, create no tag and no release'
+        required: false
+        default: 'false'
+
+concurrency:
+  group: wasm-release-${{ github.event.inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: eightamps
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      # The job container talks to the host's rootless podman over a socket.
+      PODMAN: podman --remote
+      GITEA_URL: ${{ github.server_url }}
+      GITEA_REPOSITORY: ${{ github.repository }}
+      GITEA_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ github.event.inputs.tag }}
+      DRY_RUN: ${{ github.event.inputs.dry_run }}
+    steps:
+      - name: Check the tag name
+        run: |
+          set -eu
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-ea[0-9]+$'; then
+            echo "error: the tag must look like v3.1.1-ea1, got: $TAG" >&2
+            exit 1
+          fi
+
+      - name: Check out
+        # Native git, not actions/checkout: it needs all tags and branches, and
+        # the sibling repos avoid the shared action cache on this runner.
+        run: |
+          set -eu
+          git config --global "credential.$GITEA_URL.helper" \
+            '!f() { echo "username=oauth2"; printf "password=%s\n" "$GITEA_TOKEN"; }; f'
+          git init -q .
+          git remote add origin "$GITEA_URL/$GITEA_REPOSITORY.git"
+          git fetch -q --tags origin '+refs/heads/*:refs/remotes/origin/*'
+          if git rev-parse -q --verify "refs/tags/$TAG^{commit}" >/dev/null; then
+            git checkout -q --detach "refs/tags/$TAG"
+            echo "NEW_TAG=false" >> "$GITHUB_ENV"
+          else
+            if [ "$DRY_RUN" != true ] && [ "$GITHUB_REF" != refs/heads/eightamps ]; then
+              echo "error: tag $TAG does not exist. To create it, dispatch this workflow on the eightamps branch." >&2
+              exit 1
+            fi
+            git checkout -q --detach "$GITHUB_SHA"
+            echo "NEW_TAG=true" >> "$GITHUB_ENV"
+          fi
+          # vX.Y.Z-eaN must sit on top of the upstream release vX.Y.Z.
+          upstream=${TAG%-ea*}
+          if ! git merge-base --is-ancestor "refs/tags/$upstream" HEAD; then
+            echo "error: $TAG is not based on upstream $upstream (that tag is missing or not an ancestor)." >&2
+            exit 1
+          fi
+          git log -1 --format='building %H (%s)'
+
+      - name: Build
+        run: RELEASE_TAG="$TAG" eightamps/build-wasm.sh eightamps/dist
+
+      - name: Smoke test
+        run: node eightamps/smoke-test.js eightamps/dist
+
+      - name: Tag and release
+        run: |
+          set -eu
+          if [ "$DRY_RUN" = true ]; then
+            echo "dry run: no tag and no release created"
+            cat eightamps/dist/VERSION
+            exit 0
+          fi
+          if [ "$NEW_TAG" = true ]; then
+            git tag "$TAG"
+            git push origin "refs/tags/$TAG"
+          fi
+          eightamps/release.sh "$TAG" eightamps/dist
+
+      - name: Verify the published assets
+        run: |
+          set -eu
+          if [ "$DRY_RUN" = true ]; then exit 0; fi
+          mkdir -p /tmp/published
+          for name in zxing_reader.js zxing_reader.wasm VERSION SHA256SUMS; do
+            curl -fsS -H "Authorization: token $GITEA_TOKEN" -o "/tmp/published/$name" \
+              "$GITEA_URL/$GITEA_REPOSITORY/releases/download/$TAG/$name"
+          done
+          cd /tmp/published
+          sha256sum -c SHA256SUMS

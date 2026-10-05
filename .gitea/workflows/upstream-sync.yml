@@ -1,0 +1,54 @@
+name: upstream-sync
+
+# Nightly: mirror upstream into `master`, and when upstream has a newer release
+# tag, merge it into `eightamps`, build, smoke-test and release it, all in this
+# one job. On a conflict or a failed build, push nothing and open an issue.
+# See EIGHTAMPS.md.
+#
+# Gitea runs `schedule` workflows from the default branch only, so the default
+# branch of this repo must be `eightamps`.
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      simulate_conflict:
+        description: 'true: skip the merge and open a "[simulated]" conflict issue, to test that path'
+        required: false
+        default: 'false'
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: eightamps
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      issues: write
+    env:
+      # The job container talks to the host's rootless podman over a socket.
+      PODMAN: podman --remote
+      GITEA_URL: ${{ github.server_url }}
+      GITEA_REPOSITORY: ${{ github.repository }}
+      GITEA_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      JOB_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_number }}
+      SIMULATE_CONFLICT: ${{ github.event.inputs.simulate_conflict }}
+    steps:
+      - name: Check out
+        # Native git, not actions/checkout: the sync needs all tags and
+        # branches, and the sibling repos avoid the shared action cache here.
+        run: |
+          set -eu
+          git config --global "credential.$GITEA_URL.helper" \
+            '!f() { echo "username=oauth2"; printf "password=%s\n" "$GITEA_TOKEN"; }; f'
+          git init -q .
+          git remote add origin "$GITEA_URL/$GITEA_REPOSITORY.git"
+          git fetch -q --tags origin '+refs/heads/*:refs/remotes/origin/*'
+          git checkout -q --detach "$GITHUB_SHA"
+
+      - name: Sync upstream
+        run: eightamps/upstream-sync.sh
