@@ -448,8 +448,11 @@ jobs:
     - name: Build
       run: cmake --build build --parallel
 
-#    - name: Test
-#      run: node build/EmGlueTests.js
+    - name: Test
+      run: |
+        emcmake cmake -Swrappers/wasm -Bbuild-node -DZXING_EMSCRIPTEN_ENVIRONMENT=node
+        cmake --build build-node --parallel --target zxing
+        node wrappers/wasm/test_roundtrip.js build-node/zxing.js
 
     - uses: actions/upload-artifact@v6
       with:
