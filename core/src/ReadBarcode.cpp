@@ -185,25 +185,34 @@ class LumImagePyramid
 		}
 	}
 
+	int threshold, factor;
+
 public:
 	std::vector<ImageView> layers;
 
-	LumImagePyramid(const ImageView& iv, int threshold, int factor)
+	LumImagePyramid(const ImageView& iv, int threshold, int factor) : threshold(threshold), factor(factor)
 	{
 		if (factor < 2)
 			throw std::invalid_argument("Invalid ReaderOptions::downscaleFactor");
 
 		layers.push_back(iv);
-		// TODO: if only matrix codes were considered, then using std::min would be sufficient (see #425)
-		while (threshold > 0 && std::max(layers.back().width(), layers.back().height()) > threshold &&
-			   std::min(layers.back().width(), layers.back().height()) >= factor)
-			addLayer(factor);
 #if 0
 		// Reversing the layers means we'd start with the smallest. that can make sense if we are only looking for a
 		// single symbol. If we start with the higher resolution, we get better (high res) position information.
 		// TODO: see if masking out higher res layers based on found symbols in lower res helps overall performance.
 		std::reverse(layers.begin(), layers.end());
 #endif
+	}
+
+	// The downscaled layers are only computed on demand, so the work is skipped when the
+	// full resolution layer already produced enough symbols.
+	const ImageView* layer(int i)
+	{
+		// TODO: if only matrix codes were considered, then using std::min would be sufficient (see #425)
+		while (i >= Size(layers) && threshold > 0 && std::max(layers.back().width(), layers.back().height()) > threshold &&
+			   std::min(layers.back().width(), layers.back().height()) >= factor)
+			addLayer(factor);
+		return i < Size(layers) ? &layers[i] : nullptr;
 	}
 };
 
@@ -282,7 +291,8 @@ Barcodes ReadBarcodes(const ImageView& _iv, const ReaderOptions& opts)
 
 	Barcodes res;
 	int maxSymbols = opts.maxNumberOfSymbols() ? opts.maxNumberOfSymbols() : INT_MAX;
-	for (auto&& iv : pyramid.layers) {
+	for (int l = 0; auto* layer = pyramid.layer(l); ++l) {
+		const ImageView& iv = *layer;
 		auto bitmap = CreateBitmap(opts.binarizer(), iv);
 #ifdef PRINT_DEBUG_
 		static int l = 0;
