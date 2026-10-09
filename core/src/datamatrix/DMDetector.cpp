@@ -539,9 +539,9 @@ class EdgeTracer : public BitMatrixCursorF
 							p = centered(pEdge);
 
 							if (history && maxStepSize == 1) {
-								if (history->get(PointI(p)) == state)
+								if (history->get(PointI(p)) == historyTag + state)
 									return StepResult::CLOSED_END;
-								history->set(PointI(p), state);
+								history->set(PointI(p), historyTag + state);
 							}
 
 							return StepResult::FOUND;
@@ -560,6 +560,7 @@ class EdgeTracer : public BitMatrixCursorF
 public:
 	using StateMatrix = Matrix<int8_t>;
 	StateMatrix* history = nullptr;
+	int historyTag = 0; // distinguishes the scan directions in the history so it does not need to be cleared in between
 	int state = 0;
 
 	using BitMatrixCursorF::BitMatrixCursor;
@@ -1117,17 +1118,20 @@ static DetectorResults DetectNew(const BitMatrix& image, bool tryHarder, bool tr
 
 	constexpr int minSymbolSize = 8 * 2; // minimum realistic size in pixel: 8 modules x 2 pixels per module
 
+	int historyTag = 0;
 	for (auto dir : {PointF{-1, 0}, {1, 0}, {0, -1}, {0, 1}}) {
 		auto center = PointI(image.width() / 2, image.height() / 2);
 		auto startPos = centered(center - center * dir + minSymbolSize / 2 * dir);
 
-		history.clear();
+		historyTag += 4; // the states used in Scan() are 1..3
 
 		for (int i = 1;; ++i) {
 			EdgeTracer tracer(image, startPos, dir);
 			tracer.p += i / 2 * minSymbolSize * (i & 1 ? -1 : 1) * tracer.right();
-			if (tryHarder)
+			if (tryHarder) {
 				tracer.history = &history;
+				tracer.historyTag = historyTag;
+			}
 
 			if (!tracer.isIn())
 				break;

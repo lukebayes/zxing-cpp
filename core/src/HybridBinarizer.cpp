@@ -10,6 +10,7 @@
 #include "Matrix.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <fstream>
 #include <memory>
@@ -23,6 +24,7 @@ namespace ZXing {
 static constexpr int BLOCK_SIZE = 8;
 static constexpr int WINDOW_SIZE = BLOCK_SIZE * (1 + 2 * 2);
 static constexpr int MIN_DYNAMIC_RANGE = 24;
+static constexpr int MAX_DYNAMIC_RANGE_THRESHOLD = 96;
 
 HybridBinarizer::HybridBinarizer(const ImageView& iv) : GlobalHistogramBinarizer(iv) {}
 
@@ -188,13 +190,16 @@ static std::shared_ptr<BitMatrix> CalculateMatrix(const uint8_t* __restrict lumi
 #else
 
 // Subdivide the image in blocks of BLOCK_SIZE and calculate one threshold value per block as
-// (max - min > MIN_DYNAMIC_RANGE) ? (max + min) / 2 : 0
+// (max - min > minRange) ? (max + min) / 2 : 0, where minRange is at least MIN_DYNAMIC_RANGE but grows with
+// the noise level of the image
 static Matrix<T_t> BlockThresholds(const ImageView iv)
 {
 	int subWidth = (iv.width() + BLOCK_SIZE - 1) / BLOCK_SIZE; // ceil(width/BS)
 	int subHeight = (iv.height() + BLOCK_SIZE - 1) / BLOCK_SIZE; // ceil(height/BS)
 
 	Matrix<T_t> thresholds(subWidth, subHeight);
+	Matrix<uint8_t> ranges(subWidth, subHeight);
+	std::array<int, 256> hist = {};
 
 	for (int y = 0; y < subHeight; y++) {
 		int y0 = std::min(y * BLOCK_SIZE, iv.height() - BLOCK_SIZE);
@@ -208,9 +213,24 @@ static Matrix<T_t> BlockThresholds(const ImageView iv)
 					UpdateMinMax(min, max, line[xx]);
 			}
 
-			thresholds(x, y) = (max - min > MIN_DYNAMIC_RANGE) ? (int(max) + min) / 2 : 0;
+			thresholds(x, y) = (int(max) + min) / 2;
+			ranges(x, y) = max - min;
+			++hist[max - min];
 		}
 	}
+
+	// Sensor noise (e.g. from a camera in low light) inflates the range of otherwise flat blocks. Thresholding those
+	// at their midpoint turns flat background into salt-and-pepper noise, which hurts detection and wastes time in
+	// the detectors. Estimate the noise floor as the 25th percentile of all block ranges (most of a typical frame is
+	// background) and require a block to exceed it by a factor of 2 before trusting its threshold.
+	int target = thresholds.size() / 4, noiseRange = 0;
+	for (int acc = hist[0]; acc < target && noiseRange < 255; acc += hist[++noiseRange])
+		;
+	int minRange = std::clamp(2 * noiseRange, MIN_DYNAMIC_RANGE, MAX_DYNAMIC_RANGE_THRESHOLD);
+
+	for (auto t = thresholds.begin(), r = ranges.begin(); t != thresholds.end(); ++t, ++r)
+		if (*r <= minRange)
+			*t = 0;
 
 	return thresholds;
 }
