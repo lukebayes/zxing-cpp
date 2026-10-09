@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD 20)
 include (${CMAKE_CURRENT_SOURCE_DIR}/../../zxing.cmake)
 zxing_add_package_stb()
 
-option (ZXING_WRITERS "Build with writer support (encoders)" OLD)
+set    (ZXING_WRITERS "OLD" CACHE STRING "Build with old and/or new writer (encoder) backend (OFF/ON/OLD/NEW)")
 option (ZXING_READERS "Build with reader support (decoders)" ON)
 set    (ZXING_EMSCRIPTEN_ENVIRONMENT "web" CACHE STRING "Optimize build for given emscripten runtime environment (web/node/shell/worker)")
 

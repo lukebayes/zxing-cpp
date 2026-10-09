@@ -7,6 +7,7 @@
 3. Invoke `cmake --build .` to create `zxing.js` and `zxing.wasm` (and `_reader`/`_writer` versions).
 4. To see how to include these into a working HTML page, have a look at the [reader](demo_reader.html), [writer](demo_writer.html) and [cam reader](demo_cam_reader.html) demos.
 5. To quickly test your build, copy those demo files into your build directory and run e.g. `emrun --serve_after_close demo_reader.html`.
+6. To run the round-trip smoke test under node, configure a separate build with `-DZXING_EMSCRIPTEN_ENVIRONMENT=node` and run `node test_roundtrip.js <build folder>/zxing.js`.
 
 You can also download the latest build output from the continuous integration system from the [Actions](https://github.com/zxing-cpp/zxing-cpp/actions) tab. Look for 'wasm-artifacts'. Also check out the [live demos](https://github.com/zxing-cpp/zxing-cpp#web-demos).
 
