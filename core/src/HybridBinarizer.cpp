@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <fstream>
 #include <memory>
+#include <vector>
 
 #define USE_NEW_ALGORITHM
 
@@ -201,16 +202,30 @@ static Matrix<T_t> BlockThresholds(const ImageView iv)
 	Matrix<uint8_t> ranges(subWidth, subHeight);
 	std::array<int, 256> hist = {};
 
+	// First reduce the BLOCK_SIZE rows of a block row to per-column min/max values, then reduce those per block.
+	// Processing whole rows instead of 8x8 blocks lets the compiler vectorize the inner loops.
+	std::vector<uint8_t> colMin(iv.width()), colMax(iv.width());
 	for (int y = 0; y < subHeight; y++) {
 		int y0 = std::min(y * BLOCK_SIZE, iv.height() - BLOCK_SIZE);
+		std::copy_n(iv.data(0, y0), iv.width(), colMin.data());
+		std::copy_n(iv.data(0, y0), iv.width(), colMax.data());
+		for (int yy = 1; yy < BLOCK_SIZE; yy++) {
+			const uint8_t* __restrict line = iv.data(0, y0 + yy);
+			uint8_t* __restrict mins = colMin.data();
+			uint8_t* __restrict maxs = colMax.data();
+			for (int x = 0; x < iv.width(); x++) {
+				mins[x] = std::min(mins[x], line[x]);
+				maxs[x] = std::max(maxs[x], line[x]);
+			}
+		}
+
 		for (int x = 0; x < subWidth; x++) {
 			int x0 = std::min(x * BLOCK_SIZE, iv.width() - BLOCK_SIZE);
-			uint8_t min = 255;
-			uint8_t max = 0;
-			for (int yy = 0; yy < BLOCK_SIZE; yy++) {
-				auto line = iv.data(x0, y0 + yy);
-				for (int xx = 0; xx < BLOCK_SIZE; xx++)
-					UpdateMinMax(min, max, line[xx]);
+			uint8_t min = colMin[x0];
+			uint8_t max = colMax[x0];
+			for (int xx = 1; xx < BLOCK_SIZE; ++xx) {
+				min = std::min(min, colMin[x0 + xx]);
+				max = std::max(max, colMax[x0 + xx]);
 			}
 
 			thresholds(x, y) = (int(max) + min) / 2;
@@ -241,24 +256,34 @@ static Matrix<T_t> SmoothThresholds(Matrix<T_t>&& in)
 	Matrix<T_t> out(in.width(), in.height());
 
 	constexpr int R = WINDOW_SIZE / BLOCK_SIZE / 2;
-	for (int y = 0; y < in.height(); y++) {
-		for (int x = 0; x < in.width(); x++) {
-			int left = std::clamp(x, R, in.width() - R - 1);
-			int top = std::clamp(y, R, in.height() - R - 1);
+	// Summed-area tables of the thresholds and of the number of non-zero thresholds let us compute the sum over each
+	// (2R+1)x(2R+1) window in constant time.
+	const int w = in.width(), h = in.height(), sw = w + 1;
+	std::vector<int> sums(sw * (h + 1)), counts(sw * (h + 1));
+	for (int y = 0; y < h; y++) {
+		const T_t* row = in.data() + y * w;
+		int rowSum = 0, rowCount = 0;
+		for (int x = 0; x < w; x++) {
+			rowSum += row[x];
+			rowCount += row[x] > 0;
+			sums[(y + 1) * sw + x + 1] = sums[y * sw + x + 1] + rowSum;
+			counts[(y + 1) * sw + x + 1] = counts[y * sw + x + 1] + rowCount;
+		}
+	}
+	auto window = [sw](const std::vector<int>& table, int left, int top) {
+		int x0 = left - R, x1 = left + R + 1, y0 = top - R, y1 = top + R + 1;
+		return table[y1 * sw + x1] - table[y0 * sw + x1] - table[y1 * sw + x0] + table[y0 * sw + x0];
+	};
 
-			int sum = in(x, y) * 2;
-			int n = (sum > 0) * 2;
-			auto add = [&](int x, int y) {
-				int t = in(x, y);
-				sum += t;
-				n += t > 0;
-			};
-
-			for (int dy = -R; dy <= R; ++dy)
-				for (int dx = -R; dx <= R; ++dx)
-					add(left + dx, top + dy);
-
-			out(x, y) = n > 0 ? sum / n : 0;
+	T_t* dst = out.begin();
+	for (int y = 0; y < h; y++) {
+		int top = std::clamp(y, R, h - R - 1);
+		for (int x = 0; x < w; x++) {
+			int left = std::clamp(x, R, w - R - 1);
+			int t = in.data()[y * w + x];
+			int sum = t * 2 + window(sums, left, top);
+			int n = (t > 0) * 2 + window(counts, left, top);
+			*dst++ = n > 0 ? sum / n : 0;
 		}
 	}
 
@@ -284,21 +309,31 @@ static std::shared_ptr<BitMatrix> ThresholdImage(const ImageView iv, const Matri
 	Matrix<uint8_t> out(iv.width(), iv.height());
 #endif
 
+	// Expand the block thresholds of a block row into one threshold per pixel column, then threshold whole rows,
+	// which the compiler can vectorize. Overlapping last blocks are handled like in ThresholdBlock: later ones win.
+	std::vector<T_t> rowThresholds(iv.width());
 	for (int y = 0; y < thresholds.height(); y++) {
-		int yoffset = std::min(y * BLOCK_SIZE, iv.height() - BLOCK_SIZE);
-		for (int x = 0; x < thresholds.width(); x++) {
-			int xoffset = std::min(x * BLOCK_SIZE, iv.width() - BLOCK_SIZE);
-			ThresholdBlock(iv.data(), xoffset, yoffset, thresholds(x, y), iv.rowStride(), *matrix);
+		int y0 = std::min(y * BLOCK_SIZE, iv.height() - BLOCK_SIZE);
+		for (int x = 0; x < thresholds.width(); x++)
+			std::fill_n(rowThresholds.data() + std::min(x * BLOCK_SIZE, iv.width() - BLOCK_SIZE), BLOCK_SIZE, thresholds(x, y));
 
-#ifdef PRINT_DEBUG
-			for (int yy = 0; yy < 8; ++yy)
-				for (int xx = 0; xx < 8; ++xx)
-					out.set(xoffset + xx, yoffset + yy, thresholds(x, y));
-#endif
+		for (int yy = y0; yy < y0 + BLOCK_SIZE; ++yy) {
+			const uint8_t* __restrict src = iv.data(0, yy);
+			const T_t* __restrict thr = rowThresholds.data();
+			auto* __restrict dst = matrix->row(yy).begin();
+			for (int x = 0; x < iv.width(); ++x)
+				dst[x] = src[x] <= thr[x] ? BitMatrix::SET_V : BitMatrix::UNSET_V;
 		}
 	}
 
 #ifdef PRINT_DEBUG
+	for (int y = 0; y < thresholds.height(); y++)
+		for (int x = 0; x < thresholds.width(); x++)
+			for (int yy = 0; yy < BLOCK_SIZE; ++yy)
+				for (int xx = 0; xx < BLOCK_SIZE; ++xx)
+					out.set(std::min(x * BLOCK_SIZE, iv.width() - BLOCK_SIZE) + xx, std::min(y * BLOCK_SIZE, iv.height() - BLOCK_SIZE) + yy,
+							thresholds(x, y));
+
 	std::ofstream file("thresholds_new.pnm");
 	file << "P5\n" << out.width() << ' ' << out.height() << "\n255\n";
 	file.write(reinterpret_cast<const char*>(out.data()), out.size());
