@@ -25,6 +25,7 @@
 #include <array>
 #include <cassert>
 #include <cmath>
+#include <climits>
 #include <cstdlib>
 #include <functional>
 #include <map>
@@ -1118,33 +1119,35 @@ static DetectorResults DetectNew(const BitMatrix& image, bool tryHarder, bool tr
 
 	constexpr int minSymbolSize = 8 * 2; // minimum realistic size in pixel: 8 modules x 2 pixels per module
 
-	int historyTag = 0;
-	for (auto dir : {PointF{-1, 0}, {1, 0}, {0, -1}, {0, 1}}) {
-		auto center = PointI(image.width() / 2, image.height() / 2);
-		auto startPos = centered(center - center * dir + minSymbolSize / 2 * dir);
+	// Without tryHarder only scan the lines close to the center (+/- 4 * minSymbolSize), i.e. we expect the user to
+	// point the camera at the symbol. Scanning only the 2 center lines misses many symbols depending on their orientation.
+	const int maxLines = tryHarder ? INT_MAX : 9;
+	const PointF dirs[] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+	const int numDirs = tryRotate ? 4 : 1;
+	auto center = PointI(image.width() / 2, image.height() / 2);
 
-		historyTag += 4; // the states used in Scan() are 1..3
-
-		for (int i = 1;; ++i) {
+	// Scan the lines closest to the center first, in all directions, so a symbol near the center is found quickly,
+	// regardless of its orientation.
+	for (int i = 1; i <= maxLines; ++i) {
+		bool anyIn = false;
+		for (int d = 0; d < numDirs; ++d) {
+			auto dir = dirs[d];
+			auto startPos = centered(center - center * dir + minSymbolSize / 2 * dir);
 			EdgeTracer tracer(image, startPos, dir);
 			tracer.p += i / 2 * minSymbolSize * (i & 1 ? -1 : 1) * tracer.right();
+			if (!tracer.isIn())
+				continue;
+			anyIn = true;
 			if (tryHarder) {
 				tracer.history = &history;
-				tracer.historyTag = historyTag;
+				tracer.historyTag = 4 * (d + 1); // the states used in Scan() are 1..3
 			}
-
-			if (!tracer.isIn())
-				break;
 
 			for (auto&& res : Scan(tracer, lines))
 				co_yield std::move(res);
-
-			if (!tryHarder)
-				break; // only test center lines
 		}
-
-		if (!tryRotate)
-			break; // only test left direction
+		if (!anyIn)
+			break;
 	}
 }
 
