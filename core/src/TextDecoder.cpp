@@ -23,6 +23,22 @@ std::string BytesToUtf8(ByteView bytes, ECI eci)
 	switch (eci) {
 	case ECI::UTF8: [[fallthrough]];
 	case ECI::ASCII: return std::string(bytes.begin(), bytes.end());
+	case ECI::ISO8859_1: [[fallthrough]];
+	case ECI::Binary: {
+		// ISO-8859-1 (the default character set of e.g. DataMatrix and MaxiCode) maps 1:1 to the first 256 Unicode code
+		// points, so it can be converted without any tables. Binary data is rendered the same way in the Unicode build.
+		std::string res;
+		res.reserve(bytes.size() * 2);
+		for (uint8_t b : bytes) {
+			if (b < 0x80) {
+				res += static_cast<char>(b);
+			} else {
+				res += static_cast<char>(0xC0 | (b >> 6));
+				res += static_cast<char>(0x80 | (b & 0x3F));
+			}
+		}
+		return res;
+	}
 	case ECI::UTF16BE: [[fallthrough]];
 	case ECI::UTF16LE: [[fallthrough]];
 	case ECI::UTF32BE: [[fallthrough]];
