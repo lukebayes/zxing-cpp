@@ -15,6 +15,19 @@ If `master` cannot fast-forward to upstream, someone committed to it. The nightl
 
 The default branch of the repo must be `eightamps`. Gitea runs `schedule` workflows from the default branch only.
 
+## Continuous integration
+
+`.gitea/workflows/wasm-ci.yml` runs on pushes to `eightamps` and PRs targeting `eightamps`. It uses the `eightamps` runner with a 30-minute timeout and the same rootless Podman remote setup as `wasm-release`.
+
+1. Check out the event commit, including the PR head.
+2. Run `eightamps/test-upstream-sync.sh`. These tests use local repos and a stub API. They do not publish releases or push to this repo.
+3. Build the actual `zxing_reader` release target through `eightamps/build-wasm.sh` with the pinned Emscripten image.
+4. Decode the Digi-Key Data Matrix fixture with `eightamps/smoke-test.js`.
+
+This workflow has read-only contents permission. It does not create tags or publish releases. Nightly upstream sync and manual WASM releases keep their separate workflows and write permissions.
+
+Gitea selects the first existing workflow directory: `.gitea/workflows` before `.github/workflows`. On `eightamps` and PR branches based on it, only our 3 workflows are active. The upstream platform and publishing workflows in `.github/workflows` stay unchanged and are not selected. Keep `.gitea/workflows` in PR branches; an upstream-only branch without it falls back to the upstream workflows. The nightly mirror keeps `master` unchanged and pushes it with the Actions token, which does not start another workflow.
+
 ## Release names
 
 A release is named `vX.Y.Z-eaN`:
@@ -98,6 +111,7 @@ The build packs the committed files (`git archive HEAD`). Commit your change bef
 
 | Path | Purpose |
 |---|---|
+| `.gitea/workflows/wasm-ci.yml` | Validate the pinned WASM build, smoke test and script tests on pushes and PRs to `eightamps`. |
 | `.gitea/workflows/wasm-release.yml` | Build, smoke-test and release one tag. `workflow_dispatch` with input `tag`. |
 | `.gitea/workflows/upstream-sync.yml` | The nightly job. |
 | `eightamps/build-wasm.sh` | The reproducible build. Writes `VERSION` and `SHA256SUMS`. |

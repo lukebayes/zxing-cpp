@@ -1,0 +1,46 @@
+name: wasm-ci
+
+# Gitea selects .gitea/workflows before .github/workflows. Keep this workflow
+# here so the mirrored upstream platform and publishing jobs stay inactive.
+on:
+  push:
+    branches: [eightamps]
+  pull_request:
+    branches: [eightamps]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: eightamps
+    timeout-minutes: 30
+    env:
+      # The job container talks to the host's rootless podman over a socket.
+      PODMAN: podman --remote
+      GITEA_URL: ${{ github.server_url }}
+      GITEA_REPOSITORY: ${{ github.repository }}
+    steps:
+      - name: Check out
+        # Use native git, as in wasm-release. Fetch tags for VERSION and check
+        # out the event commit, including a PR head that is not on eightamps.
+        env:
+          GITEA_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          git config --global "credential.$GITEA_URL.helper" \
+            '!f() { echo "username=oauth2"; printf "password=%s\n" "$GITEA_TOKEN"; }; f'
+          git init -q .
+          git remote add origin "$GITEA_URL/$GITEA_REPOSITORY.git"
+          git fetch -q --tags origin '+refs/heads/*:refs/remotes/origin/*'
+          git fetch -q origin "$GITHUB_SHA"
+          git checkout -q --detach "$GITHUB_SHA"
+
+      - name: Test sync and release scripts
+        run: eightamps/test-upstream-sync.sh
+
+      - name: Build pinned WASM release target
+        run: eightamps/build-wasm.sh eightamps/dist
+
+      - name: Smoke test Digi-Key Data Matrix
+        run: node eightamps/smoke-test.js eightamps/dist
